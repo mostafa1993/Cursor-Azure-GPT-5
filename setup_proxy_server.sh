@@ -73,17 +73,6 @@ install_cloudflared() {
   sudo apt-get install -y cloudflared
 }
 
-clone_repo() {
-  ensure_git
-
-  if [ -d "${APP_DIR}/.git" ]; then
-    echo "Repo already exists at ${APP_DIR}."
-    return
-  fi
-
-  git clone "${REPO_URL}" "${APP_DIR}"
-}
-
 ensure_env_file() {
   if [ -f "${APP_DIR}/.env" ]; then
     return
