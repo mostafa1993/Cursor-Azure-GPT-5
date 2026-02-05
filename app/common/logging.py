@@ -5,7 +5,7 @@ import os
 import re
 import time
 import uuid
-from typing import Any, Dict, List
+from typing import Any
 
 from flask import Request
 from rich import box
@@ -45,11 +45,11 @@ def redact_value(value: str) -> str:
     return value[:4] + "…" + value[-4:]
 
 
-def redact_headers(headers: Dict[str, str]) -> Dict[str, str]:
+def redact_headers(headers: dict[str, str]) -> dict[str, str]:
     """Return a copy of headers with sensitive values redacted when enabled."""
     if not should_redact():
         return dict(headers)
-    redacted: Dict[str, str] = {}
+    redacted: dict[str, str] = {}
     sensitive = {
         "authorization",
         "proxy-authorization",
@@ -67,18 +67,18 @@ def redact_headers(headers: Dict[str, str]) -> Dict[str, str]:
     return redacted
 
 
-def multidict_to_dict(md) -> Dict[str, List[str]]:
+def multidict_to_dict(md) -> dict[str, list[str]]:
     """Convert a werkzeug MultiDict-like object to a plain dict of lists."""
     return {k: list(vs) for k, vs in md.lists()}
 
 
-def _capture_request_details(req: Request, request_id: str) -> Dict[str, Any]:
+def _capture_request_details(req: Request, request_id: str) -> dict[str, Any]:
     """Collect a structured snapshot of request information for logging."""
     # Note: access request inside request context
     hdrs = {k: v for k, v in req.headers.items()}
     redacted_headers = redact_headers(hdrs)
 
-    details: Dict[str, Any] = {
+    details: dict[str, Any] = {
         "id": request_id,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime()),
         "remote_addr": (req.headers.get("X-Forwarded-For") or req.remote_addr or ""),
@@ -105,7 +105,18 @@ def escape_tags(text: str) -> str:
     ).replace(">`\n\n\n`<", ">`\n\n`<")
 
 
-def create_message_panel(msg: Dict[str, Any], idx: int, total: int) -> Panel:
+def _stringify_message_content(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    try:
+        return json.dumps(content, ensure_ascii=True, indent=2)
+    except (TypeError, ValueError):
+        return str(content)
+
+
+def create_message_panel(msg: dict[str, Any], idx: int, total: int) -> Panel:
     """Create a Rich Panel for displaying a message.
 
     Args:
@@ -117,7 +128,7 @@ def create_message_panel(msg: Dict[str, Any], idx: int, total: int) -> Panel:
         A Rich Panel object ready to be printed
     """
     role = str(msg.get("role", ""))
-    content_val = msg.get("content", "")
+    content_val = _stringify_message_content(msg.get("content", ""))
     name = msg.get("name")
     tool_call_id = msg.get("tool_call_id")
     message_title = (

@@ -6,7 +6,8 @@ requests into Azure Responses API request parameters.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+import json
+from typing import Any
 
 from flask import Request, current_app
 
@@ -29,23 +30,50 @@ class RequestAdapter:
     # ---- Helpers (kept local to minimize cross-module coupling) ----
     def _copy_request_headers_for_azure(
         self, src: Request, *, api_key: str
-    ) -> Dict[str, str]:
-        headers: Dict[str, str] = {k: v for k, v in src.headers.items()}
+    ) -> dict[str, str]:
+        headers: dict[str, str] = {k: v for k, v in src.headers.items()}
         headers.pop("Host", None)
         # Azure prefers api-key header
         headers.pop("Authorization", None)
         headers["api-key"] = api_key
         return headers
 
+    def _content_to_text(self, content: Any) -> str:
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for part in content:
+                if isinstance(part, str):
+                    parts.append(part)
+                elif isinstance(part, dict):
+                    text_value = part.get("text") or part.get("content")
+                    if text_value is None:
+                        continue
+                    parts.append(
+                        text_value if isinstance(text_value, str) else str(text_value)
+                    )
+                else:
+                    parts.append(str(part))
+            return "\n".join([part for part in parts if part])
+        if isinstance(content, dict):
+            text_value = content.get("text") or content.get("content")
+            if text_value is not None:
+                return text_value if isinstance(text_value, str) else str(text_value)
+            return json.dumps(content, ensure_ascii=True)
+        return str(content)
+
     def _messages_to_responses_input_and_instructions(
-        self, messages: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        instructions_parts: List[str] = []
-        input_items: List[Dict[str, Any]] = []
+        self, messages: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        instructions_parts: list[str] = []
+        input_items: list[dict[str, Any]] = []
 
         for m in messages:
             role = m.get("role")
-            content = m.get("content")
+            content = self._content_to_text(m.get("content"))
             if role in {"system", "developer"}:
                 instructions_parts.append(content)
                 continue
@@ -91,7 +119,7 @@ class RequestAdapter:
         }
 
     def _transform_tools_for_responses(self, tools: Any) -> Any:
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         if not isinstance(tools, list):
             current_app.logger.debug(
                 "Skipping tool transformation because tools payload is not a list: %r",
@@ -101,7 +129,7 @@ class RequestAdapter:
 
         for tool in tools:
             function = tool.get("function")
-            transformed: Dict[str, Any] = {
+            transformed: dict[str, Any] = {
                 "type": "function",
                 "name": function.get("name"),
                 "description": function.get("description"),
@@ -112,7 +140,7 @@ class RequestAdapter:
         return out
 
     # ---- Main adaptation (always streaming completions-like) ----
-    def adapt(self, req: Request) -> Dict[str, Any]:
+    def adapt(self, req: Request) -> dict[str, Any]:
         """Build requests.request kwargs for the Azure Responses API call.
 
         Maps inputs to the Responses schema and returns a dict suitable for
@@ -187,7 +215,7 @@ class RequestAdapter:
         if settings["AZURE_TRUNCATION"] == "auto":
             responses_body["truncation"] = settings["AZURE_TRUNCATION"]
 
-        request_kwargs: Dict[str, Any] = {
+        request_kwargs: dict[str, Any] = {
             "method": "POST",
             "url": settings["AZURE_RESPONSES_API_URL"],
             "headers": upstream_headers,
